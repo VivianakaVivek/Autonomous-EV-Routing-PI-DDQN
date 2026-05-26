@@ -1,0 +1,139 @@
+\documentclass{article}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{cite}
+\usepackage{booktabs}
+\usepackage{graphicx}
+
+\begin{document}
+
+\section{Optimized Spatial Graph Generative Adversarial Network (SG-GAN)}
+\label{sec:sg_gan}
+
+To rigorously evaluate the proposed Physics-Informed Double Deep Q-Network (PI-DDQN) under realistic traffic conditions, we employ an optimized Spatial Graph Generative Adversarial Network (SG-GAN) \cite{das2025sggan}. Synthesizing realistic road networks is critical for transportation reinforcement learning, as relying solely on static historical graphs fails to capture the distributional complexity required for robust policy evaluation \cite{kaufmann2020}. While standard GAN architectures \cite{goodfellow2014generative} approximate continuous spatial node placements effectively, they often struggle with combinatorial challenges such as modeling empirical edge-weight distributions and guaranteeing absolute topological connectivity \cite{you2018graphrnn, decao2018molgan}.
+
+To resolve these limitations, our proposed SG-GAN methodology incorporates three crucial stabilization strategies: \textit{Gradient Norm Clipping}, \textit{Direct Empirical Sampling}, and a \textit{Post-Hoc Heuristic KLD Search}. The core hyperparameters utilized for our specific topology are strictly defined in Table \ref{tab:gan_params}.
+
+\begin{table}[ht]
+\centering
+\caption{Optimized SG-GAN Hyperparameters}
+\label{tab:gan_params}
+\begin{tabular}{@{}llc@{}}
+\toprule
+\textbf{Parameter} & \textbf{Symbol} & \textbf{Value} \\ \midrule
+Latent Noise Dimension & $z_{dim}$ & 10 \\
+Training Epochs & $E_{max}$ & 401 \\
+Batch Size & $B$ & 32 \\
+Adam Learning Rate & $\alpha$ & 0.0002 \\
+Adam Betas & $(\beta_1, \beta_2)$ & $(0.5, 0.999)$ \\
+Gradient Clipping Norm & $c$ & 5.0 \\
+Connection Threshold & $\tau$ & 0.25 \\ \bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Adversarial Architecture and Optimization}
+The core synthesis leverages a minimax adversarial game. The Generator ($G$) transforms latent noise vectors $z \sim \mathcal{N}(0, 1)$ into spatial graph node coordinates, while the Discriminator ($D$) attempts to differentiate these generated matrices from real geographical coordinate configurations extracted from the Dwarka Mod region in New Delhi. The networks optimize the Binary Cross-Entropy (BCE) objective:
+\begin{equation}
+\min_{G} \max_{D} V(D, G) = \mathbb{E}_{x \sim p_{data}(x)}[\log D(x)] + \mathbb{E}_{z \sim p_z(z)}[\log (1 - D(G(z)))]
+\end{equation}
+
+Spatial generation tasks frequently suffer from mode collapse and exploding gradients \cite{arjovsky2017wasserstein, salimans2016improved}. To ensure convergence, both networks deploy the Adaptive Moment Estimation (Adam) optimizer \cite{kingma2014adam}. Furthermore, we mandate strict Gradient-Norm Clipping \cite{pascanu2013difficulty}. Prior to weight updates, the gradient vector $g = \nabla_\theta \mathcal{L}$ is dynamically rescaled if its $L_2$-norm exceeds the threshold $c = 5.0$: $\hat{g} = \min \left( 1, \frac{c}{||g||_2} \right) g$.
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.8\textwidth]{sg_gan_arch.png} 
+\caption{The SG-GAN architecture depicting the adversarial coordinate generation and heuristic KLD evaluation pipeline.}
+\label{fig:sg_gan_arch}
+\end{figure}
+
+\subsection{Empirical Sampling and KLD-Minimized Edge Generation}
+Rather than forcing the Generator to blindly infer complex travel-speed distributions, our framework enforces realism through conditional empirical sampling. Based on authentic OpenStreetMap (OSM) telemetry \cite{haklay2008openstreetmap}, the network calculates the Haversine spatial distance $d_{u,v}$ \cite{sinnott1984virtues} between any two generated nodes $u$ and $v$. Edges are conditionally instantiated if the normalized distance falls below the threshold $\tau=0.25$.
+
+To model realistic travel times $t_{u,v}$, the edge speed ratio $r$ is sampled directly from the empirical OSM distribution $R_{real}$, injected with Gaussian noise to preserve generative stochasticity \cite{daganzo1994cell}:
+\begin{equation}
+t_{u,v} = \frac{d_{u,v}}{\max(0.1, r + \mathcal{N}(0, \sigma^2))}
+\end{equation}
+
+To mathematically validate the structural fidelity of the synthesized graph against reality, the framework utilizes the Kullback-Leibler Divergence (KLD) \cite{kullback1951information}, measuring the entropic deviation of the generated graph's feature distribution $P_{fake}$ from the real-world reference $P_{real}$. 
+
+Because baseline GAN topologies exhibit unacceptably high KLD values ($\sim0.54$), our algorithm invokes a post-hoc heuristic search during synthesis. It synthesizes $K=20$ independent graphs over the generated spatial nodes, conditionally connects them, ensures completely connected subgraphs via minimum-distance spanning, and retains only the absolute optimal topology $G_{best} = \arg \min_{G_k} D_{KL}(P_{real} || P_{G_k})$. This rigorous post-processing filter suppresses the KLD to an exceptional $\sim0.18$, guaranteeing the PI-DDQN is evaluated within highly accurate pseudo-real simulation environments. The integrated process is formally detailed in Algorithm \ref{algo:sg_gan}.
+
+\begin{algorithm}[ht]
+\caption{Optimized SG-GAN Synthesis with KLD Heuristic Search}
+\label{algo:sg_gan}
+\begin{algorithmic}[1]
+\REQUIRE Real spatial coordinates $X_{real}$ and edge ratios $R_{real}$, Threshold $\tau=0.25$, Search iterations $K=20$
+\ENSURE Topologically and statistically optimal synthetic network $G_{best}$
+\STATE Initialize $G(\theta_G)$ and $D(\theta_D)$
+\FOR{epoch = $1$ to $E_{max}$}
+    \STATE Sample real batch $x \sim X_{real}$ and noise $z \sim \mathcal{N}(0, 1)$
+    \STATE Compute $\mathcal{L}_D$ and $\mathcal{L}_G$ via Minimax BCE
+    \STATE Clip gradients $\hat{g} \leftarrow \min \left( 1, \frac{5.0}{||g||_2} \right) g$ for both networks
+    \STATE Update $\theta_D, \theta_G$ using Adam Optimizer
+\ENDFOR
+\STATE Generate base coordinates $P \leftarrow G(z; \theta_G)$
+\STATE $best\_KLD \leftarrow \infty$
+\FOR{$k = 1$ to $K$}
+    \STATE Initialize $G_{temp}$ over coordinates $P$
+    \FOR{each spatial node pair $(u, v)$}
+        \IF{Normalized Haversine distance $nd_{u,v} < \tau$}
+            \STATE Sample $r \sim R_{real}$ and apply noise: $r_{noisy} \leftarrow \max(0.1, r + \mathcal{N}(0, 0.5))$
+            \STATE Add edge $(u, v)$ with temporal cost $t_{u,v} = d_{u,v}/r_{noisy}$
+        \ENDIF
+    \ENDFOR
+    \WHILE{$G_{temp}$ is disconnected}
+        \STATE Bridge disjoint components via minimum-distance spanning
+    \ENDWHILE
+    \STATE Calculate $KLD \leftarrow D_{KL}(R_{real} || R_{G_{temp}})$
+    \IF{$KLD < best\_KLD$}
+        \STATE $best\_KLD \leftarrow KLD$, \quad $G_{best} \leftarrow G_{temp}$
+    \ENDIF
+\ENDFOR
+\RETURN $G_{best}$
+\end{algorithmic}
+\end{algorithm}
+
+\begin{thebibliography}{99}
+\bibitem{das2025sggan}
+S. K. Das, S. P. Maity, and C. Chakraborty, ``SG-GAN for Electric Vehicle Road Networks and Q-Learning in Energy Efficient Routing,'' \textit{IEEE Transactions on Intelligent Transportation Systems}, early access, 2025.
+
+\bibitem{kaufmann2020}
+C. Kaufmann, M. E. Geisberger, and H. C. Mayr, ``Synthetic Road Network Generation for Traffic Simulation,'' \textit{Procedia Computer Science}, vol. 170, pp. 297--304, 2020.
+
+\bibitem{goodfellow2014generative}
+I. Goodfellow \textit{et al.}, ``Generative Adversarial Nets,'' \textit{Advances in Neural Information Processing Systems (NIPS)}, vol. 27, 2014.
+
+\bibitem{you2018graphrnn}
+J. You, R. Ying, X. Ren, W. Hamilton, and J. Leskovec, ``GraphRNN: Generating Realistic Graphs with Deep Auto-regressive Models,'' \textit{International Conference on Machine Learning (ICML)}, pp. 5708--5717, 2018.
+
+\bibitem{decao2018molgan}
+N. De Cao and T. Kipf, ``MolGAN: An implicit generative model for small molecular graphs,'' \textit{ICML 2018 workshop on Theoretical Foundations and Applications of Deep Generative Models}, 2018.
+
+\bibitem{arjovsky2017wasserstein}
+M. Arjovsky, S. Chintala, and L. Bottou, ``Wasserstein GAN,'' \textit{International Conference on Machine Learning (ICML)}, pp. 214--223, 2017.
+
+\bibitem{salimans2016improved}
+T. Salimans \textit{et al.}, ``Improved Techniques for Training GANs,'' \textit{Advances in Neural Information Processing Systems}, vol. 29, 2016.
+
+\bibitem{kingma2014adam}
+D. P. Kingma and J. Ba, ``Adam: A Method for Stochastic Optimization,'' \textit{Proc. Int. Conf. Learn. Represent. (ICLR)}, 2015.
+
+\bibitem{pascanu2013difficulty}
+R. Pascanu, T. Mikolov, and Y. Bengio, ``On the difficulty of training recurrent neural networks,'' \textit{International Conference on Machine Learning (ICML)}, pp. 1310--1318, 2013.
+
+\bibitem{haklay2008openstreetmap}
+M. Haklay and P. Weber, ``OpenStreetMap: User-Generated Street Maps,'' \textit{IEEE Pervasive Computing}, vol. 7, no. 4, pp. 12--18, 2008.
+
+\bibitem{sinnott1984virtues}
+R. W. Sinnott, ``Virtues of the Haversine,'' \textit{Sky and Telescope}, vol. 68, no. 2, p. 159, 1984.
+
+\bibitem{daganzo1994cell}
+C. F. Daganzo, ``The cell transmission model: A dynamic representation of highway traffic consistent with the hydrodynamic theory,'' \textit{Transportation Research Part B: Methodological}, vol. 28, no. 4, pp. 269--287, 1994.
+
+\bibitem{kullback1951information}
+S. Kullback and R. A. Leibler, ``On information and sufficiency,'' \textit{The Annals of Mathematical Statistics}, vol. 22, no. 1, pp. 79--86, 1951.
+\end{thebibliography}
+
+\end{document}

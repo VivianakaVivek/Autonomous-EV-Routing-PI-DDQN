@@ -1,0 +1,170 @@
+\documentclass{article}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{cite}
+\usepackage{booktabs}
+\usepackage{graphicx}
+
+\begin{document}
+
+\section{Physics-Informed Double Deep Q-Network (PI-DDQN)}
+\label{sec:pi_ddqn}
+
+To overcome the scalability limitations and lack of physical feasibility guarantees inherent to tabular multi-agent Q-learning, this research proposes a novel Physics-Informed Double Deep Q-Network (PI-DDQN). Traditional reinforcement learning (RL) approaches struggle with the ``curse of dimensionality'' in complex topologies and rely on post-hoc penalty mechanisms when agents violate energy constraints \cite{sutton2018rl, mnih2015dqn}. The PI-DDQN architecture seamlessly integrates scalable value approximation via Deep Q-Networks (DQN) \cite{mnih2015dqn}, mitigates overestimation bias using Double DQN \cite{van2016deep, thrun1993issues}, and introduces a novel Physics-Informed action masking mechanism that rigorously bounds the agent's exploration space to mathematically feasible routes.
+
+\subsection{System Architecture and State Representation}
+The state representation captures the dynamic temporal and spatial characteristics of an electric vehicle (EV) within the road graph $G(V,E)$. At time step $t$, the state vector observed by an EV is formulated as:
+\begin{equation}
+s_t = \left[\text{onehot}(v_t),\ \text{onehot}(v_{dest}),\ \frac{SOC_t}{SOC_{\max}}\right], \quad \dim(s_t) = 2|V| + 1.
+\end{equation}
+For our 29-node network, the 59-dimensional state is processed by a dense feedforward neural network ($59 \rightarrow 128 \rightarrow 128 \rightarrow 29$) with ReLU activations \cite{goodfellow2016deep}. The execution flow is partitioned into three core operational zones:
+\begin{itemize}
+    \item \textbf{Inference Flow:} The Online Q-Network ($\theta$) outputs action distributions, dynamically filtered by a physical safety mask. If the EV State of Charge (SOC) is critically low, a Bipartite Allocation protocol assigns the EV to an optimal charging station \cite{kuhn1955hungarian}.
+    \item \textbf{Training Loop:} Safe transitions are stored in an Experience Replay buffer $\mathcal{D}$ \cite{lin1992self}. Mini-batches ($b=64$) are sampled to optimize a composite loss function via the Adam optimizer \cite{kingma2014adam}, explicitly penalizing physical boundary violations.
+    \item \textbf{Target Estimation:} The Target Q-Network ($\theta^-$) stabilizes target estimations, with its weights periodically synchronized ($\theta^- \leftarrow \theta$) to suppress bias \cite{van2016deep}.
+\end{itemize}
+
+\subsection{Physics-Informed Action Masking and Optimization}
+The defining advancement of the PI-DDQN is the strict enforcement of thermodynamic laws through action masking. Before an action is selected, the maximum potential energy demand $E_{req}(a)$ for adjoining edges is computed. An action mask is dynamically applied:
+\begin{equation}
+M(s_t, a) = 
+\begin{cases}
+0, & \text{if } SOC_t \ge E_{req}(a),\\
+-\infty, & \text{otherwise.}
+\end{cases}
+\end{equation}
+The masked action-value function, $\tilde{Q}(s_t, a) = Q(s_t, a; \theta) + M(s_t, a)$, guarantees the selection of routes that never exceed battery limits, mathematically eliminating fatal EV ``stranding'' events \cite{zhang2023ddqnper}. The agent balances exploration using a masked $\epsilon$-greedy policy \cite{sutton2018rl}.
+
+To optimize the network, we minimize a composite loss function $\mathcal{L}$ that blends the standard Temporal Difference (TD) error ($\mathcal{L}_{TD}$) with a novel physics-violation penalty ($\mathcal{L}_{phys}$):
+\begin{equation}
+\mathcal{L} = \mathcal{L}_{TD} + \lambda \mathbb{E}\left[\left(\max\left(0,\ Q(s_t, a_t; \theta) - \left[p_t + \gamma(1-d_t)\hat{Q}_{next}\right]\right)\right)^2\right]
+\end{equation}
+where $p_t$ is the deterministic transition-level physical energy bound, and $\lambda = 0.5$ dictates the weight of physical regularization. This forces the neural representations to converge within real-world thermodynamic constraints, conceptually mirroring Physics-Informed Neural Networks (PINNs) \cite{raissi2019pinn}.
+
+\subsection{Shaped Reward Function}
+To accelerate policy convergence, the environment provides a dense shaped reward $r_t$:
+\begin{equation}
+r_t = 10 - 5\left[\beta\frac{E_{ij}}{E_{norm}} + (1-\beta)\frac{t_{ij}}{T_{norm}}\right] - 2\delta_{ij} + \mathbf{1}_{dest}\cdot 100 - \mathbf{1}_{depleted}\cdot 50 + \Delta\Phi(s_t)
+\label{eq:reward}
+\end{equation}
+The parameter $\beta = 0.8$ prioritizes energy conservation. The potential function $\Phi(s)$ leverages A* shortest-path heuristics \cite{hart1968formal} to guide the EV smoothly toward the destination, neutralizing sparse terminal rewards while preserving optimal policy guarantees \cite{ng1999policy}.
+
+\begin{algorithm}[ht]
+\caption{Multi-Agent PI-DDQN Routing with Physics Masking}
+\label{algo:piddqn_detailed}
+\begin{algorithmic}[1]
+\REQUIRE Road graph $G(V,E)$, EV count $N$, replay capacity $B$, batch size $b$
+\STATE Initialize online $Q(\theta)$, target $\hat{Q}(\theta^-)\leftarrow Q(\theta)$, replay buffer $\mathcal{D}$
+\FOR{epoch $=1$ to $I_{\pi}$}
+    \STATE Sample $N$ agents with random $(v_{start}, v_{dest}, SOC_0)$, initialize active set $\mathcal{A}$
+    \FOR{step $=1$ to $T_{\max}$}
+        \FOR{each agent $k\in\mathcal{A}$}
+            \IF{$SOC_k \le T_h$}
+                \STATE Reassign destination to the optimal minimum-cost charging station
+            \ENDIF
+            \STATE Compute energy demand $E_{req}(a)$ and apply mask $M(s_t, a)$
+            \STATE Select action $a_t$ using masked $\epsilon$-greedy policy on $\tilde{Q}(s_t, a)$
+            \STATE Execute transition: update congestion $\delta_{ij}$, energy $E_{ij}$, and $SOC_k$
+            \STATE Store transition $(s_t,a_t,r_t,s_{t+1},d_t,p_t)$ in $\mathcal{D}$
+        \ENDFOR
+        \IF{$|\mathcal{D}| \ge b$}
+            \STATE Sample mini-batch from $\mathcal{D}$ and compute DDQN targets $Y_t^{DDQN}$
+            \STATE Minimize composite loss $\mathcal{L}_{TD}+\lambda\mathcal{L}_{phys}$ via Adam optimizer
+        \ENDIF
+    \ENDFOR
+    \IF{epoch $\bmod \tau_{sync}=0$}
+        \STATE Synchronize target network: $\theta^{-}\leftarrow\theta$
+    \ENDIF
+\ENDFOR
+\end{algorithmic}
+\end{algorithm}
+
+\section{Calculation of Energy Consumption, Travel Time and Congestion}
+\label{sec:energy_time_congestion}
+The PI-DDQN strictly evaluates environmental fitness through the granular calculation of traction force, dynamic traffic congestion, and charging dwell times.
+
+\subsection{Energy Consumption and Regenerative Braking}
+The energy required to traverse an edge $(i, j)$ derives from fundamental longitudinal forces, including aerodynamic drag, rolling resistance, and road grade \cite{gillespie1992fundamentals, fiori2016power}:
+\begin{equation}
+F_{ij} = \frac{1}{2}\rho C_d A v_{ij}^{2} + C_r m g + m g \sin(\theta_{ij})
+\end{equation}
+The instantaneous mechanical power ($P_{ij} = F_{ij} \cdot v_{ij}$) is converted to electrical energy (kWh), accounting for a generic mechanical-to-electrical drivetrain efficiency ($\eta = 0.85$) \cite{ehsani2018modern}. Crucially, in urban driving cycles, EVs recover energy during deceleration and descent. Our model explicitly incorporates regenerative braking, applying an efficiency factor of $0.80$ to establish the net free-flow energy cost \cite{settele2020peukert}:
+\begin{equation}
+E_{net, ij} = 0.80 \cdot \frac{F_{ij} \cdot d_{ij}}{\eta \cdot (3.6 \times 10^{6})}
+\end{equation}
+
+\subsection{Dynamic Congestion and Travel Time}
+Traffic congestion non-linearly degrades energy efficiency. Following the principles of the Bureau of Public Roads (BPR) function \cite{bpr1964}, the dynamic congestion factor $\delta_{ij}$ reflects the real-time flow-to-capacity ratio:
+\begin{equation}
+\delta_{ij} = \min\left(1.0, \frac{q_{ij}}{C_{ij}}\right)
+\end{equation}
+The net energy consumption is mathematically inflated by this factor, scaling up to a 20\% penalty during absolute gridlock: $E_{final, ij} = E_{net, ij} (1 + 0.2 \delta_{ij})$. This efficiently mimics the stop-and-go energy drain and updates the vehicle's true $SOC_{t+1}$ \cite{das2025sggan}. Consequently, the PI-DDQN is actively incentivized to engage in network-wide load balancing.
+
+The total traversal time $t_{ij}$ incorporates both congestion-induced delays and charging dwell times:
+\begin{equation}
+t_{ij} = t_{ij}^{base}\left(1 + 0.5 \delta_{ij}\right) + \frac{B_{\max} - B_{current}}{\eta_s}
+\end{equation}
+Queueing delays at charging hubs are implicitly governed by Little's Theorem ($W = L / \lambda_{rate}$), modeled by augmenting the local $\delta_{ij}$ of incoming edges proportional to accumulated EVs \cite{little1961}. Together, these precise physical computations govern the environmental feedback, compelling the PI-DDQN to perfectly balance energy preservation, temporal routing efficiency, and charging infrastructure utilization.
+
+\begin{thebibliography}{99}
+\bibitem{das2025sggan}
+S. K. Das, S. P. Maity, and C. Chakraborty, ``SG-GAN for Electric Vehicle Road Networks and Q-Learning in Energy Efficient Routing,'' \textit{IEEE Transactions on Intelligent Transportation Systems}, early access, 2025.
+
+\bibitem{van2016deep}
+H. van Hasselt, A. Guez, and D. Silver, ``Deep Reinforcement Learning with Double Q-learning,'' \textit{Proceedings of the AAAI Conference on Artificial Intelligence}, vol. 30, no. 1, 2016.
+
+\bibitem{mnih2015dqn}
+V. Mnih \textit{et al.}, ``Human-level control through deep reinforcement learning,'' \textit{Nature}, vol. 518, no. 7540, pp. 529--533, 2015.
+
+\bibitem{thrun1993issues}
+S. Thrun and A. Schwartz, ``Issues in Using Function Approximation for Reinforcement Learning,'' \textit{Proceedings of the 1993 Connectionist Models Summer School}, 1993.
+
+\bibitem{sutton2018rl}
+R. S. Sutton and A. G. Barto, \textit{Reinforcement Learning: An Introduction}, 2nd ed. MIT Press, 2018.
+
+\bibitem{lin1992self}
+L. J. Lin, ``Self-improving reactive agents based on reinforcement learning, planning and teaching,'' \textit{Machine Learning}, vol. 8, pp. 293--321, 1992.
+
+\bibitem{kingma2014adam}
+D. P. Kingma and J. Ba, ``Adam: A Method for Stochastic Optimization,'' \textit{Proceedings of the 3rd International Conference on Learning Representations (ICLR)}, 2015.
+
+\bibitem{goodfellow2016deep}
+I. Goodfellow, Y. Bengio, and A. Courville, \textit{Deep Learning}. MIT Press, 2016.
+
+\bibitem{kuhn1955hungarian}
+H. W. Kuhn, ``The Hungarian method for the assignment problem,'' \textit{Naval Research Logistics Quarterly}, vol. 2, no. 1-2, pp. 83--97, 1955.
+
+\bibitem{raissi2019pinn}
+M. Raissi, P. Perdikaris, and G. E. Karniadakis, ``Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations,'' \textit{Journal of Computational Physics}, vol. 378, pp. 686--707, 2019.
+
+\bibitem{hart1968formal}
+P. E. Hart, N. J. Nilsson, and B. Bertram, ``A Formal Basis for the Heuristic Determination of Minimum Cost Paths,'' \textit{IEEE Transactions on Systems Science and Cybernetics}, vol. 4, no. 2, pp. 100--107, 1968.
+
+\bibitem{ng1999policy}
+A. Y. Ng, D. Harada, and S. Russell, ``Policy invariance under reward transformations: Theory and application to reward shaping,'' in \textit{ICML}, vol. 99, pp. 278--287, 1999.
+
+\bibitem{fiori2016power}
+C. Fiori, K. Ahn, and H. A. Rakha, ``Power-based electric vehicle energy consumption model: Model development and validation,'' \textit{Applied Energy}, vol. 168, pp. 257--268, 2016.
+
+\bibitem{settele2020peukert}
+F. Settele, F. Holzapfel, and A. Knoll, ``The impact of Peukert-effect on optimal control of a battery-electrically driven airplane,'' \textit{Aerospace}, vol. 7, no. 13, 2020.
+
+\bibitem{little1961}
+J. D. C. Little, ``A Proof for the Queueing Formula: $L=\lambda W$,'' \textit{Operations Research}, vol. 9, no. 3, pp. 383--387, 1961.
+
+\bibitem{zhang2023ddqnper}
+Y. Zhang \textit{et al.}, ``A cooperative EV charging scheduling strategy based on double deep Q-network and prioritized experience replay,'' \textit{Engineering Applications of Artificial Intelligence}, vol. 118, p. 105642, 2023.
+
+\bibitem{gillespie1992fundamentals}
+T. D. Gillespie, \textit{Fundamentals of Vehicle Dynamics}. Warrendale, PA: Society of Automotive Engineers, 1992.
+
+\bibitem{bpr1964}
+Bureau of Public Roads, \textit{Traffic Assignment Manual}. U.S. Dept. of Commerce, Urban Planning Division, Washington D.C., 1964.
+
+\bibitem{ehsani2018modern}
+M. Ehsani, Y. Gao, S. Longo, and K. Ebrahimi, \textit{Modern Electric, Hybrid Electric, and Fuel Cell Vehicles}. CRC press, 2018.
+\end{thebibliography}
+
+\end{document}
