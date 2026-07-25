@@ -3,10 +3,10 @@ import networkx as nx
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 from config import *
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'Q-Learning'))
-from network_env import NetworkEnvironment
+
+from SG_GAN.network_env import NetworkEnvironment
 
 def plot_academic_map(G, title, fn, save_dir):
     # Strict Academic IEEE/Elsevier styling

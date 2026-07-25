@@ -3,8 +3,8 @@ import numpy as np
 import networkx as nx
 import pandas as pd
 
-sys.path.insert(0, os.path.dirname(__file__))
-from base_paper.network_env import NetworkEnvironment, Generator
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+from SG_GAN.network_env import NetworkEnvironment, Generator
 from base_paper.routing import MultiAgentRouter as QLRouter
 from pi_ddqn.pi_ddqn_routing import MultiAgentPIDDQNRouter as PIDDQNRouter
 from config import BETA_WEIGHT, SCALE_TRAIN_EPOCHS_QL, SCALE_TRAIN_EPOCHS_PIDDQN, GAN_NOISE_DIM

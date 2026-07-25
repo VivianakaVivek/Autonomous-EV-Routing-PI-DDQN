@@ -14,7 +14,7 @@ from matplotlib.lines import Line2D
 sys.stdout.reconfigure(line_buffering=True)
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from network_env import NetworkEnvironment, Generator
+from SG_GAN.network_env import NetworkEnvironment, Generator
 from pi_ddqn_routing import MultiAgentPIDDQNRouter, PIDDQNAgent, EV
 from config import *
 

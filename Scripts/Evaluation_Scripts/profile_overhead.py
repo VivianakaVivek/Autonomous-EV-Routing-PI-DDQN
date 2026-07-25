@@ -5,10 +5,10 @@ Measures training time, inference time, memory, and model size for both models.
 import sys, os, time, pickle, random
 import numpy as np
 sys.stdout.reconfigure(encoding='utf-8', line_buffering=True)
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 from config import *
-from base_paper.network_env import NetworkEnvironment, Generator
+from SG_GAN.network_env import NetworkEnvironment, Generator
 from base_paper.routing import MultiAgentRouter, EVAgent
 from pi_ddqn.pi_ddqn_routing import MultiAgentPIDDQNRouter, PIDDQNAgent
 from collections import defaultdict

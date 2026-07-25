@@ -15,8 +15,8 @@ from mpl_toolkits.mplot3d import Axes3D
 from collections import defaultdict
 sys.stdout.reconfigure(encoding='utf-8', line_buffering=True)
 
-sys.path.insert(0, os.path.dirname(__file__))
-from base_paper.network_env import NetworkEnvironment, Generator
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+from SG_GAN.network_env import NetworkEnvironment, Generator
 from base_paper.routing import MultiAgentRouter, EVAgent
 from pi_ddqn.pi_ddqn_routing import MultiAgentPIDDQNRouter, PIDDQNAgent
 from config import *

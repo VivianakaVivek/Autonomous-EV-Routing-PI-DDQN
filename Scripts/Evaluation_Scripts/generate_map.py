@@ -8,9 +8,9 @@ import numpy as np
 import torch
 sys.stdout.reconfigure(line_buffering=True)
 
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 from config import *
-from base_paper.network_env import NetworkEnvironment, Generator
+from SG_GAN.network_env import NetworkEnvironment, Generator
 
 SEED = 42
 random.seed(SEED)

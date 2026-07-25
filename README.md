@@ -7,7 +7,17 @@ This repository contains the source code, data, and academic documentation for t
 
 ---
 
-## 📌 Detailed Research Overview
+## 🛑 NEWCOMERS: START HERE
+
+If you are new to this repository, please read the methodology documentation located in `Documentation/Methodology/` sequentially. They perfectly sum up the entirety of the research, the mathematics, and the problem solved.
+
+1. **[01_Research_Overview.md](Documentation/Methodology/01_Research_Overview.md)**: The complete, consolidated summary of our Research Aim, the Core Problem (Tabular Q-Learning failing at physics), How we solve it with PI-DDQN, and the extensive empirical simulation results (Energy, Scalability, and Overhead).
+2. **[02_Mathematical_Formulas_and_Variables.md](Documentation/Methodology/02_Mathematical_Formulas_and_Variables.md)**: A complete breakdown of all mathematical formulas used for traffic congestion, travel time, physics constraints, and the novel deep learning variables introduced.
+3. **[03_Hand_Calculation_Proof_of_Physics.md](Documentation/Methodology/03_Hand_Calculation_Proof_of_Physics.md)**: A transparent, step-by-step manual calculation proving that the underlying physics engine perfectly matches empirical reality.
+
+---
+
+## 📌 High-Level Research Overview
 
 A fundamental vulnerability of traditional data-driven EV routing models—such as Tabular Q-Learning and standard Deep Reinforcement Learning (DRL) algorithms—is that they are fundamentally "physics-blind." They evaluate spatial graphs purely based on historical or heuristic data, inherently relying on post-failure penalization. In dynamic urban environments, this causes conventional A.I. agents to blindly route EVs into highly congested, high-incline arteries, draining the battery faster than the heuristic expects and leading to catastrophic stranding events.
 
@@ -15,45 +25,26 @@ This research successfully bridges the gap between theoretical algorithmic pathf
 
 ---
 
-## 🚀 Core Architectural Innovations
+## 📂 Repository Structure
 
-### 1. Formal Physical Guarantees (100% Safe Routing)
-By embedding real-world physical constraints into the architecture, the PI-DDQN evaluates $E_{req} > SOC$ to mathematically block lethal state transitions. This entirely eliminates the 1,845 physical stranding violations observed in the baseline tabular architecture, guaranteeing a **perfect 100% routing success rate**.
+To assist external reviewers and collaborators, the codebase has been perfectly restructured into logical modules representing the separation of concerns:
 
-### 2. Edge Deployability (Solving the Curse of Dimensionality)
-Standard Tabular Q-Learning suffers an $\mathcal{O}(|S| \times |A|)$ memory explosion, requiring a massive $\sim$78.0 MB Q-table at 100 nodes, rendering it completely incompatible with legacy vehicular microcontrollers. Our proposed neural architecture maps state spaces via continuous forward-pass tensor operations. The deployable inference model requires only **$\sim$281 KB at 50 nodes** and processes routing decisions in **$<0.200$ ms**, definitively proving its feasibility for edge computing.
+### 🧠 Core Implementation Modules
+* **`PI_DDQN/`**: Contains the novel routing intelligence (`pi_ddqn_routing.py`, `run.py`).
+* **`SG_GAN/`**: Completely decoupled map generation and adversarial environment logic (`network_env.py`).
+* **`Baselines/`**: Contains all legacy algorithms used for comparison (Q-Learning, Clustering, Dijkstra, GNN_RL, MILP, Metaheuristic).
+* **`Scripts/`**: Evaluation scripts to run large-scale simulations and generate comparative graphics.
+* **`config.py`**: The central brain for hyperparameter tuning. Shared across all algorithms to guarantee fair testing.
 
-### 3. Energy Optimization Under Severe Congestion
-We implemented a dynamic congestion model that computes a local stop-and-go factor ($I'_{ij}$), directly inflating energy consumption by up to +20\% in gridlock to simulate realistic thermodynamic waste. The PI-DDQN proactively forces strategic detours along secondary flat roads, achieving a non-monotonic energy drop at 100\% gridlock (18.52 kWh/100km). This comes within 2.3\% of the theoretical MILP global optimum and saves **+7.96\%** more energy than the baseline model.
+### 📄 Documentation & References (`Documentation/`)
+* **`Methodology/`**: The core research explanations and markdown proofs (Start here!).
+* **`Literature_Review/`**: Perfectly numbered and professionally titled PDF reference materials cited within the study.
+* **`PI_DDQN_Research Paper.pdf`**: The finalized manuscript detailing our findings.
 
-### 4. Highly Realistic Topology Generation (SG-GAN)
-To bypass the severe mode collapse common in synthetic graph generation, we heavily modified the SG-GAN framework. By explicitly extracting authentic geographic speed-to-distance ratios from real **Dwarka Mod OpenStreetMap (OSM)** data and applying a 20-iteration post-hoc heuristic search, the generator enforces strict spatial logic. It achieved a near-perfect 96\% connectivity rate and an optimal Kullback-Leibler Divergence (KLD) of **0.18**.
-
----
-
-## 📂 Detailed Folder Significance & Repository Structure
-
-To assist external reviewers and collaborators, the codebase has been strictly organized into logical modules:
-
-### 🧠 Core Algorithm Modules
-* **`pi_ddqn/` (Proposed Architecture)**: This folder contains the novel contribution of this research. It houses `pi_ddqn_routing.py`, which defines the neural network architecture, the Physics Action Mask logic, the experience replay buffer, and the reward penalty regularizer ($\lambda=0.25$).
-* **`base_paper/` (Baseline Architecture)**: This folder isolates the legacy models we compare against. It contains the Tabular Q-Learning implementations and the baseline SG-GAN architecture from previous literature, ensuring a strict, fair, and untainted environment for benchmark testing.
-
-### 📄 Documentation & Academia
-* **`Latex Code/`**: Contains the complete, final LaTeX source code for the research manuscript, fully formatted for IEEE submission. This includes all rigorous mathematical proofs and generated tables (`result new .tex`).
-* **`Markdown Docs/`**: Contains raw analytical notes, manual hand-calculation proofs for the physics engine, and granular variable introductions.
-* **`Research Papers/`**: Contains the PDF literature and reference material cited within the study.
-
-### 📊 Support & Logs
-* **`Logs/`**: A repository for terminal output dumps, profiling overhead logs, and debug traces. (Kept out of the root directory to maintain a clean workspace).
-* **`Utils/`**: Contains independent scratchpad files, PDF extraction tools, and graph node testing scripts used during development but not required for executing the main experiments.
-* **`Data/` or `Maps/`**: Stores serialized graph artifacts (like `shared_map.pkl` and `real_gan_data.json`) to guarantee that all algorithms are evaluated on the exact same synthetic urban topologies.
-
-### ⚙️ Root Execution Scripts
-* **`config.py`**: The central brain for hyperparameter tuning. Adjusting variables here (like learning rate, EV mass, or maximum episodes) applies universally across both `base_paper` and `pi_ddqn` for perfectly fair testing.
-* **`generate_map.py`**: The execution script for the SG-GAN. Run this to synthesize a new urban mesh topology.
-* **`comparison_table.py`**: The primary experiment runner. It loads identical EV parameters and forces both the baseline and PI-DDQN algorithms to route them through identical traffic congestion profiles (25%, 50%, 100%), generating side-by-side performance metrics.
-* **`generate_fig6.py` & `generate_physics_metrics.py`**: Automated scripts that calculate polynomial time scaling, generate 3D surface visualizations of the memory footprint, and plot convergence dynamics.
+### 📊 Data & Results
+* **`Data/`**: Serialized graphs and GAN metrics ensuring deterministic environments for testing.
+* **`Results/`**: Simulation logs, metrics, and visualization HTML files.
+* **`Utils/`**: Independent helper tools and scratchpad scripts.
 
 ---
 
@@ -66,28 +57,14 @@ cd PI-DDQN-EV-Routing
 ```
 
 **2. Install dependencies:**
-The environment relies on scientific and deep learning libraries.
+The environment relies on standard scientific and deep learning libraries.
 ```bash
 pip install numpy torch networkx osmnx matplotlib scipy pandas
 ```
 
 **3. Run the complete experiment pipeline:**
 
-*Step A: Generate the Synthetic Topology*
-```bash
-python generate_map.py
-```
-
-*Step B: Execute the Routing Comparison (Q-Learning vs. PI-DDQN)*
-```bash
-python comparison_table.py
-```
-
-*Step C: Generate Academic Visualizations*
-```bash
-python generate_fig6_fast.py
-python generate_physics_metrics.py
-```
+Execute the main simulations from the `Scripts/Evaluation_Scripts/` directory (or use your IDE to run the specific Python files) to generate topologies, run comparisons, and plot the efficiency graphs.
 
 ---
 *This research was developed as a Bachelor of Technology (BTP) Project.*
